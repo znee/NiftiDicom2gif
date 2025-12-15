@@ -7,6 +7,9 @@ import { convertToGif, getGifUrl, clearTask, clearAll, type ConversionResponse }
 
 type Status = 'idle' | 'converting' | 'done' | 'error';
 
+// Check if running on GitHub Pages (no backend available)
+const isGitHubPages = window.location.hostname.includes('github.io');
+
 function App() {
   const [files, setFiles] = useState<File[]>([]);
   const [settings, setSettings] = useState<ConversionSettings>({
@@ -91,6 +94,23 @@ function App() {
           </p>
         </div>
       </header>
+
+      {/* GitHub Pages Notice */}
+      {isGitHubPages && (
+        <div className="bg-blue-50 border-b border-blue-200">
+          <div className="max-w-6xl mx-auto px-4 py-3">
+            <div className="flex items-center gap-2 text-blue-800">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm">
+                <strong>Demo Mode:</strong> This is a static preview. To use the converter, clone the repository and run locally with the Python backend.
+                See <a href="https://github.com/znee/NiftiDicom2gif" className="underline font-medium" target="_blank" rel="noopener noreferrer">GitHub</a> for instructions.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-4 py-8">
