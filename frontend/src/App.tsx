@@ -251,6 +251,7 @@ function App() {
             <div>
               <h4 className="font-semibold mb-3">Credits & Acknowledgments</h4>
               <ul className="text-sm text-slate-300 space-y-1">
+                <li>Developed by <span className="text-white">Jinhee Jang MD, PhD</span>, Seoul St. Mary's Hospital</li>
                 <li>Built with FastAPI, React, and TypeScript</li>
                 <li>NIfTI processing: <a href="https://nipy.org/nibabel/" className="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">NiBabel</a></li>
                 <li>DICOM processing: <a href="https://pydicom.github.io/" className="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">pydicom</a></li>
