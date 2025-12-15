@@ -22,6 +22,7 @@ function App() {
     windowMode: 'auto',
     windowMin: 1,
     windowMax: 99,
+    flipHorizontal: false,
   });
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);

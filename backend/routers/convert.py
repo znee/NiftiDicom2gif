@@ -65,6 +65,8 @@ async def convert_to_gif(
     window_mode: Literal["auto", "manual"] = Form("auto"),
     window_min: int = Form(1),
     window_max: int = Form(99),
+    # Flip
+    flip_horizontal: bool = Form(False),
 ):
     """
     Convert uploaded NIfTI or DICOM files to animated GIF.
@@ -79,6 +81,7 @@ async def convert_to_gif(
     - **window_mode**: "auto" for percentile-based, "manual" for absolute range
     - **window_min**: Lower bound (percentile for auto, % of range for manual)
     - **window_max**: Upper bound (percentile for auto, % of range for manual)
+    - **flip_horizontal**: Flip images left-right
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
@@ -190,6 +193,12 @@ async def convert_to_gif(
             slices = slices[start_idx:end_idx]
             metadata["slice_range"] = f"{slice_start}%-{slice_end}%"
             metadata["slices_after_filter"] = len(slices)
+
+        # Apply horizontal flip if requested
+        if flip_horizontal:
+            import numpy as np
+            slices = [np.fliplr(s) for s in slices]
+            metadata["flipped"] = True
 
         # Generate preview frames
         preview_frames = get_preview_frames(slices, num_frames=5, colormap=colormap)

@@ -42,6 +42,8 @@ export async function convertToGif(
   formData.append('window_mode', settings.windowMode);
   formData.append('window_min', settings.windowMin.toString());
   formData.append('window_max', settings.windowMax.toString());
+  // Flip
+  formData.append('flip_horizontal', settings.flipHorizontal.toString());
 
   const response = await axios.post<ConversionResponse>(
     `${API_BASE}/convert`,
