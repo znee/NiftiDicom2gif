@@ -116,10 +116,10 @@ function App() {
       <main className="max-w-6xl mx-auto px-4 py-8">
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Left Column - Upload & Options */}
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* File Upload Card */}
-            <div className="bg-white rounded-2xl shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h2 className="text-lg font-semibold text-gray-800 mb-3">
                 Upload Files
               </h2>
               <FileUploader
@@ -129,18 +129,40 @@ function App() {
               />
             </div>
 
+            {/* Convert Button - Between Upload and Options */}
+            <button
+              onClick={handleConvert}
+              disabled={status === 'converting' || files.length === 0}
+              className={`
+                w-full py-3 px-4 rounded-xl font-semibold text-white transition-all
+                ${status === 'converting' || files.length === 0
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-lg hover:shadow-xl'
+                }
+              `}
+            >
+              {status === 'converting' ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Converting...
+                </span>
+              ) : (
+                'Convert to GIF'
+              )}
+            </button>
+
             {/* Conversion Options Card */}
-            <div className="bg-white rounded-2xl shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h2 className="text-lg font-semibold text-gray-800 mb-3">
                 Conversion Options
               </h2>
               <ConversionOptions
                 settings={settings}
                 onSettingsChange={setSettings}
-                onConvert={handleConvert}
                 disabled={status === 'converting'}
-                isConverting={status === 'converting'}
-                hasFiles={files.length > 0}
               />
             </div>
           </div>
