@@ -15,7 +15,9 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HOST=0.0.0.0
-ENV PORT=8802
+# Note: PORT is set by cloud platforms (Render, Railway, etc.)
+# Default 10000 is Render's default port
+ENV PORT=10000
 
 WORKDIR /app
 
@@ -37,12 +39,12 @@ COPY --from=frontend-builder /app/frontend/dist ./static
 # Create temp directory
 RUN mkdir -p temp
 
-# Expose port
-EXPOSE 8802
+# Expose the port (Render uses PORT env var)
+EXPOSE $PORT
 
-# Health check
+# Health check - use PORT env var
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8802/health || exit 1
+    CMD curl -f http://localhost:${PORT:-10000}/health || exit 1
 
 # Run the application
 CMD ["python", "main.py"]
