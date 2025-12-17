@@ -112,9 +112,45 @@ Example:
 CORS_ORIGINS="https://example.com,https://app.example.com" PORT=8000 python main.py
 ```
 
-## HTTPS Setup (Optional)
+## Cloud Deployment
 
-For HTTPS access (eliminates "Not Secure" browser warning):
+### Deploy to Render (Recommended)
+
+1. Fork this repository to your GitHub account
+2. Go to [render.com](https://render.com) and sign up
+3. Click "New" → "Blueprint"
+4. Connect your GitHub repository
+5. Render will automatically detect `render.yaml` and deploy
+
+Or manually:
+1. Click "New" → "Web Service"
+2. Connect your repository
+3. Select "Docker" as runtime
+4. Set port to `8802`
+
+### Deploy with Docker
+
+```bash
+# Build the image
+docker build -t nifti-gif-converter .
+
+# Run locally
+docker run -p 8802:8802 nifti-gif-converter
+
+# Access at http://localhost:8802
+```
+
+### Other Platforms
+
+The included `Dockerfile` works with most container platforms:
+- **Railway**: Connect repo, auto-detects Dockerfile
+- **Fly.io**: `fly launch` then `fly deploy`
+- **Google Cloud Run**: Build and push to Container Registry
+- **AWS App Runner**: Deploy from ECR
+
+## HTTPS Setup (Optional, Local Development)
+
+For local HTTPS access (eliminates "Not Secure" browser warning):
 
 ```bash
 # Generate self-signed certificate
@@ -159,6 +195,9 @@ nifti_gif_app/
 │   │       └── ActionButtons.tsx      # Download/clear buttons
 │   ├── package.json
 │   └── vite.config.ts
+├── Dockerfile                   # Multi-stage Docker build
+├── render.yaml                  # Render.com deployment config
+├── .dockerignore                # Docker build exclusions
 └── README.md
 ```
 

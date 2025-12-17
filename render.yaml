@@ -1,0 +1,17 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: nifti-gif-converter
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free  # or starter for better performance
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8802
+      - key: HOST
+        value: 0.0.0.0
+      - key: CORS_ORIGINS
+        value: "*"

@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts
+frontend/dist/
+*.egg-info/
+
+# Development files
+.git/
+.gitignore
+*.md
+!README.md
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Test files
+tests/
+*.test.ts
+*.test.tsx
+*.spec.ts
+
+# Temp files
+backend/temp/
+*.tmp
+*.log
+
+# SSL certificates
+certs/

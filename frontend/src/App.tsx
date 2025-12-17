@@ -11,6 +11,9 @@ type Status = 'idle' | 'loading_preview' | 'previewing' | 'converting' | 'done' 
 // Check if running on GitHub Pages (no backend available)
 const isGitHubPages = window.location.hostname.includes('github.io');
 
+// Check if running on cloud-hosted version (not localhost)
+const isCloudHosted = !['localhost', '127.0.0.1'].includes(window.location.hostname) && !isGitHubPages;
+
 function App() {
   const [files, setFiles] = useState<File[]>([]);
   const [settings, setSettings] = useState<ConversionSettings>({
@@ -159,6 +162,27 @@ function App() {
           </p>
         </div>
       </header>
+
+      {/* Cloud Hosting Privacy Warning */}
+      {isCloudHosted && (
+        <div className="bg-red-50 border-b-2 border-red-300">
+          <div className="max-w-6xl mx-auto px-4 py-3">
+            <div className="flex items-start gap-3 text-red-800">
+              <svg className="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div className="text-sm">
+                <p className="font-bold text-red-900 mb-1">Privacy Warning - Cloud-Hosted Demo</p>
+                <ul className="space-y-0.5 text-red-700">
+                  <li>• <strong>Do NOT upload real patient data</strong> - Use only anonymized or sample files</li>
+                  <li>• Files are uploaded to a remote server and temporarily stored during processing</li>
+                  <li>• For real medical data, <a href="https://github.com/znee/NiftiDicom2gif" className="underline font-medium" target="_blank" rel="noopener noreferrer">run locally</a> on your own machine</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* GitHub Pages Notice */}
       {isGitHubPages && (

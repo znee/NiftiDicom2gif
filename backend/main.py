@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from routers import convert
 
@@ -18,6 +20,9 @@ CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Comma-separated list or "*" for
 
 # Temp directory for storing generated GIFs
 TEMP_DIR = Path(__file__).parent / "temp"
+
+# Static files directory (for production deployment with built frontend)
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
@@ -53,10 +58,34 @@ app.add_middleware(
 app.include_router(convert.router, prefix="/api", tags=["convert"])
 
 
-@app.get("/")
-async def root():
-    """Health check endpoint."""
+@app.get("/health")
+async def health():
+    """Health check endpoint for monitoring."""
     return {"status": "ok", "message": "NIfTI/DICOM to GIF Converter API"}
+
+
+# Serve static frontend in production (when static directory exists)
+if STATIC_DIR.exists():
+    # Serve static assets (JS, CSS, images)
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/")
+    async def serve_root():
+        """Serve the frontend index.html."""
+        return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/{path:path}")
+    async def serve_spa(path: str):
+        """Serve SPA - return index.html for all non-API routes."""
+        file_path = STATIC_DIR / path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(STATIC_DIR / "index.html")
+else:
+    @app.get("/")
+    async def root():
+        """Development mode - API only."""
+        return {"status": "ok", "message": "NIfTI/DICOM to GIF Converter API (dev mode)"}
 
 
 if __name__ == "__main__":
