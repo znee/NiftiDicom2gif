@@ -103,14 +103,51 @@ The backend supports environment variables for configuration:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HOST` | `0.0.0.0` | Server host address |
+| `HOST` | `127.0.0.1` | Server host (`127.0.0.1` for local only, `0.0.0.0` for network) |
 | `PORT` | `8802` | Server port |
-| `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated for multiple) |
+| `CORS_ORIGINS` | localhost | Allowed CORS origins (comma-separated) |
+| `PRODUCTION` | `false` | Enable production mode (disables docs, hides errors) |
+| `RATE_LIMIT` | `30` | Max requests per minute per IP |
 
 Example:
 ```bash
-CORS_ORIGINS="https://example.com,https://app.example.com" PORT=8000 python main.py
+# Local development (default - localhost only)
+python main.py
+
+# Allow network access (use with caution)
+HOST=0.0.0.0 python main.py
+
+# Production mode
+PRODUCTION=true CORS_ORIGINS="https://example.com" python main.py
 ```
+
+## Security
+
+### Local Webapp Security
+
+The local webapp includes these security measures:
+
+- **Localhost-only by default**: Server binds to `127.0.0.1` (use `HOST=0.0.0.0` for network access)
+- **CORS restrictions**: Only allows localhost origins by default
+- **Rate limiting**: 30 requests/minute per IP (configurable via `RATE_LIMIT`)
+- **Upload limits**: 500MB per file, 2GB total, max 1000 files
+- **Temp cleanup**: Clear All button removes all server-side data
+
+### Cloud Deployment Security
+
+When deployed to cloud (Render, etc.):
+
+- **CORS**: Restricted to specific domain only
+- **API docs**: Disabled (`/docs`, `/redoc`, `/openapi.json`)
+- **Error messages**: Sanitized to hide internal paths
+- **Rate limiting**: Applied at infrastructure level
+
+### Recommendations
+
+1. **Do NOT expose to public internet** without proper authentication
+2. **Use localhost binding** (`HOST=127.0.0.1`) for personal use
+3. **Clear data after use** - click "Clear All" to remove uploaded files
+4. **For sensitive data**, run locally instead of cloud demo
 
 ## Cloud Deployment
 
