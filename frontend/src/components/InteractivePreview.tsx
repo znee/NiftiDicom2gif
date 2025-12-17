@@ -99,6 +99,10 @@ interface InteractivePreviewProps {
   sliceEnd: number;
   // Colormap
   colormap: string;
+  // Window/Level for contrast adjustment (percentile-based: 0-100)
+  windowMode: 'auto' | 'manual';
+  windowWidth: number;
+  windowLevel: number;
   // Animation
   isPlaying: boolean;
   fps: number;
@@ -122,6 +126,9 @@ export function InteractivePreview({
   sliceStart,
   sliceEnd,
   colormap,
+  windowMode,
+  windowWidth,
+  windowLevel,
   isPlaying,
   fps,
   onPlayPauseToggle,
@@ -198,29 +205,91 @@ export function InteractivePreview({
     };
   }, [frames]);
 
-  // Apply colormap to grayscale image data
-  const applyColormap = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    if (colormap === 'gray') return; // No transformation needed
+  // Generate window/level lookup table
+  // For auto mode: width/level are percentiles (0-100)
+  // For manual mode: we remap 0-255 based on width/level as percentiles of the 0-255 range
+  const windowLUT = useMemo(() => {
+    const lut = new Uint8Array(256);
 
-    const lut = COLORMAPS[colormap];
-    if (!lut || lut.length === 0) return;
+    if (windowMode === 'auto') {
+      // Auto mode: width/level represent percentile range
+      // width=98, level=50 means 1st to 99th percentile (default full range)
+      const halfWidth = windowWidth / 2;
+      const lowerPct = Math.max(0, windowLevel - halfWidth) / 100;
+      const upperPct = Math.min(100, windowLevel + halfWidth) / 100;
 
+      // Map input 0-255 through window
+      const vmin = Math.floor(lowerPct * 255);
+      const vmax = Math.ceil(upperPct * 255);
+
+      for (let i = 0; i < 256; i++) {
+        if (i <= vmin) {
+          lut[i] = 0;
+        } else if (i >= vmax) {
+          lut[i] = 255;
+        } else {
+          lut[i] = Math.round(((i - vmin) / (vmax - vmin)) * 255);
+        }
+      }
+    } else {
+      // Manual mode: width/level are treated as percentages of 0-255 range
+      // This allows CT presets to work by remapping contrast
+      const center = (windowLevel / 100) * 255;
+      const width = (windowWidth / 100) * 255;
+      const vmin = center - width / 2;
+      const vmax = center + width / 2;
+
+      for (let i = 0; i < 256; i++) {
+        if (i <= vmin) {
+          lut[i] = 0;
+        } else if (i >= vmax) {
+          lut[i] = 255;
+        } else {
+          lut[i] = Math.round(((i - vmin) / (vmax - vmin)) * 255);
+        }
+      }
+    }
+
+    return lut;
+  }, [windowMode, windowWidth, windowLevel]);
+
+  // Check if window settings are non-default (need to apply windowing)
+  const needsWindowing = windowMode !== 'auto' || windowWidth !== 98 || windowLevel !== 50;
+
+  // Apply window/level and colormap to grayscale image data
+  const applyWindowAndColormap = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
 
+    const colormapLUT = COLORMAPS[colormap];
+    const useColormap = colormap !== 'gray' && colormapLUT && colormapLUT.length > 0;
+
     for (let i = 0; i < data.length; i += 4) {
-      const gray = data[i]; // R channel (same as G and B for grayscale)
-      const [r, g, b] = lut[gray] || [gray, gray, gray];
-      data[i] = r;
-      data[i + 1] = g;
-      data[i + 2] = b;
+      let gray = data[i]; // R channel (same as G and B for grayscale)
+
+      // Apply window/level if needed
+      if (needsWindowing) {
+        gray = windowLUT[gray];
+      }
+
+      // Apply colormap
+      if (useColormap) {
+        const [r, g, b] = colormapLUT[gray] || [gray, gray, gray];
+        data[i] = r;
+        data[i + 1] = g;
+        data[i + 2] = b;
+      } else {
+        data[i] = gray;
+        data[i + 1] = gray;
+        data[i + 2] = gray;
+      }
       // Alpha stays the same
     }
 
     ctx.putImageData(imageData, 0, 0);
-  }, [colormap]);
+  }, [colormap, windowLUT, needsWindowing]);
 
-  // Draw frame to canvas with transforms and colormap
+  // Draw frame to canvas with transforms, window/level, and colormap
   const drawFrame = useCallback((displayFrameIndex: number) => {
     const canvas = canvasRef.current;
     if (!canvas || loadedImages.length === 0 || filteredIndices.length === 0) return;
@@ -261,16 +330,16 @@ export function InteractivePreview({
 
     ctx.restore();
 
-    // Apply colormap after drawing
-    applyColormap(ctx, canvas.width, canvas.height);
-  }, [loadedImages, flipHorizontal, flipVertical, rotate90, getEffectiveIndex, applyColormap, filteredIndices.length]);
+    // Apply window/level and colormap after drawing
+    applyWindowAndColormap(ctx, canvas.width, canvas.height);
+  }, [loadedImages, flipHorizontal, flipVertical, rotate90, getEffectiveIndex, applyWindowAndColormap, filteredIndices.length]);
 
-  // Draw current frame when slice, transforms, or colormap change
+  // Draw current frame when slice, transforms, window, or colormap change
   useEffect(() => {
     if (loadedImages.length > 0 && !isPlaying) {
       drawFrame(currentSlice);
     }
-  }, [currentSlice, drawFrame, loadedImages, isPlaying, flipHorizontal, flipVertical, rotate90, reverseSlices, colormap, sliceStart, sliceEnd]);
+  }, [currentSlice, drawFrame, loadedImages, isPlaying, flipHorizontal, flipVertical, rotate90, reverseSlices, colormap, sliceStart, sliceEnd, windowMode, windowWidth, windowLevel]);
 
   // Animation loop
   useEffect(() => {

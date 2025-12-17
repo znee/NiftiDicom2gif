@@ -336,6 +336,9 @@ function App() {
                   sliceStart={settings.sliceStart}
                   sliceEnd={settings.sliceEnd}
                   colormap={settings.colormap}
+                  windowMode={settings.windowMode}
+                  windowWidth={settings.windowWidth}
+                  windowLevel={settings.windowLevel}
                   isPlaying={isPlaying}
                   fps={settings.fps}
                   onPlayPauseToggle={handlePlayPauseToggle}

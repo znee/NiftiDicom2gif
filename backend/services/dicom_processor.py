@@ -535,6 +535,37 @@ def extract_slices_from_volume(
     return slices
 
 
+def normalize_to_full_range(
+    pixel_array: np.ndarray,
+    percentile_low: float = 1,
+    percentile_high: float = 99
+) -> Tuple[np.ndarray, float, float]:
+    """
+    Normalize pixel array to 0-255 using full data range (with percentile clipping).
+    Returns normalized array and the actual min/max values for client-side windowing.
+
+    Args:
+        pixel_array: Raw pixel data
+        percentile_low: Lower percentile for clipping outliers
+        percentile_high: Upper percentile for clipping outliers
+
+    Returns:
+        Tuple of (normalized uint8 array, data_min, data_max)
+    """
+    arr = pixel_array.astype(np.float64)
+    vmin = float(np.percentile(arr, percentile_low))
+    vmax = float(np.percentile(arr, percentile_high))
+
+    # Clip and normalize
+    arr_clipped = np.clip(arr, vmin, vmax)
+    if vmax > vmin:
+        normalized = ((arr_clipped - vmin) / (vmax - vmin) * 255).astype(np.uint8)
+    else:
+        normalized = np.zeros_like(arr, dtype=np.uint8)
+
+    return normalized, vmin, vmax
+
+
 def normalize_dicom_array(
     pixel_array: np.ndarray,
     dicom_window_center: Optional[float] = None,
