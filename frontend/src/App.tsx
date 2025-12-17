@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { ConversionOptions, type ConversionSettings } from './components/ConversionOptions';
 import { Preview } from './components/Preview';
+import { InteractivePreview } from './components/InteractivePreview';
 import { ActionButtons } from './components/ActionButtons';
-import { convertToGif, getGifUrl, clearTask, clearAll, type ConversionResponse } from './api';
+import { convertToGif, getGifUrl, clearTask, clearAll, getPreviewFrames, type ConversionResponse, type PreviewResponse } from './api';
 
-type Status = 'idle' | 'converting' | 'done' | 'error';
+type Status = 'idle' | 'loading_preview' | 'previewing' | 'converting' | 'done' | 'error';
 
 // Check if running on GitHub Pages (no backend available)
 const isGitHubPages = window.location.hostname.includes('github.io');
@@ -20,14 +21,63 @@ function App() {
     sliceStart: 0,
     sliceEnd: 100,
     windowMode: 'auto',
-    windowMin: 1,
-    windowMax: 99,
+    windowLevel: 50,
+    windowWidth: 98,
+    // Image transform controls
     flipHorizontal: false,
+    flipVertical: false,
+    rotate90: 0,
+    reverseSlices: false,
+    // GIF options
+    maxGifSize: 512,
+    maxFrames: 0,
   });
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ConversionResponse | null>(null);
   const [gifUrl, setGifUrl] = useState<string | null>(null);
+  // Interactive preview state
+  const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
+  const [currentSlice, setCurrentSlice] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const handleLoadPreview = useCallback(async () => {
+    if (files.length === 0) return;
+
+    setStatus('loading_preview');
+    setError(null);
+    setPreviewData(null);
+    setCurrentSlice(0);
+    setIsPlaying(false);
+    // Clear GIF result when loading new preview
+    setResult(null);
+    setGifUrl(null);
+
+    try {
+      const response = await getPreviewFrames(files, {
+        mode: settings.mode,
+        orientation: settings.orientation,
+        // Colormap and slice range applied client-side for interactivity
+        windowMode: settings.windowMode,
+        windowWidth: settings.windowWidth,
+        windowLevel: settings.windowLevel,
+        previewSize: 320, // Slightly larger for better preview
+      });
+      setPreviewData(response);
+      setCurrentSlice(0);
+      setStatus('previewing');
+    } catch (err) {
+      setStatus('error');
+      if (err instanceof Error) {
+        setError(err.message);
+      } else if (typeof err === 'object' && err !== null && 'response' in err) {
+        const axiosError = err as { response?: { data?: { detail?: string } } };
+        setError(axiosError.response?.data?.detail || 'Failed to load preview');
+      } else {
+        setError('An unexpected error occurred');
+      }
+    }
+  }, [files, settings]);
 
   const handleConvert = async () => {
     if (files.length === 0) return;
@@ -65,6 +115,9 @@ function App() {
     }
     setResult(null);
     setGifUrl(null);
+    setPreviewData(null);
+    setCurrentSlice(0);
+    setIsPlaying(false);
     setStatus('idle');
     setError(null);
   };
@@ -78,9 +131,20 @@ function App() {
     setFiles([]);
     setResult(null);
     setGifUrl(null);
+    setPreviewData(null);
+    setCurrentSlice(0);
+    setIsPlaying(false);
     setStatus('idle');
     setError(null);
   };
+
+  const handleSliceChange = useCallback((slice: number) => {
+    setCurrentSlice(slice);
+  }, []);
+
+  const handlePlayPauseToggle = useCallback(() => {
+    setIsPlaying(prev => !prev);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -130,30 +194,58 @@ function App() {
               />
             </div>
 
-            {/* Convert Button - Between Upload and Options */}
-            <button
-              onClick={handleConvert}
-              disabled={status === 'converting' || files.length === 0}
-              className={`
-                w-full py-3 px-4 rounded-xl font-semibold text-white transition-all
-                ${status === 'converting' || files.length === 0
-                  ? 'bg-gray-300 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-lg hover:shadow-xl'
-                }
-              `}
-            >
-              {status === 'converting' ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Converting...
-                </span>
-              ) : (
-                'Convert to GIF'
-              )}
-            </button>
+            {/* Action Buttons - Load Preview & Convert */}
+            <div className="flex gap-2">
+              {/* Load Preview Button */}
+              <button
+                onClick={handleLoadPreview}
+                disabled={status === 'converting' || status === 'loading_preview' || files.length === 0}
+                className={`
+                  flex-1 py-3 px-4 rounded-xl font-semibold transition-all
+                  ${status === 'converting' || status === 'loading_preview' || files.length === 0
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-purple-100 text-purple-700 hover:bg-purple-200 active:bg-purple-300 border border-purple-300'
+                  }
+                `}
+              >
+                {status === 'loading_preview' ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Loading...
+                  </span>
+                ) : (
+                  'Load Preview'
+                )}
+              </button>
+
+              {/* Convert Button */}
+              <button
+                onClick={handleConvert}
+                disabled={status === 'converting' || status === 'loading_preview' || files.length === 0}
+                className={`
+                  flex-1 py-3 px-4 rounded-xl font-semibold text-white transition-all
+                  ${status === 'converting' || status === 'loading_preview' || files.length === 0
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-lg hover:shadow-xl'
+                  }
+                `}
+              >
+                {status === 'converting' ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Converting...
+                  </span>
+                ) : (
+                  'Convert to GIF'
+                )}
+              </button>
+            </div>
 
             {/* Conversion Options Card */}
             <div className="bg-white rounded-2xl shadow-sm p-5">
@@ -172,15 +264,72 @@ function App() {
           <div className="space-y-6">
             {/* Preview Card */}
             <div className="bg-white rounded-2xl shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">
-                Preview
-              </h2>
-              <Preview
-                gifUrl={gifUrl}
-                previewFrames={result?.preview_frames || []}
-                metadata={result?.metadata || null}
-                isLoading={status === 'converting'}
-              />
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-800">
+                  {gifUrl ? 'Generated GIF' : 'Interactive Preview'}
+                </h2>
+                {previewData && !gifUrl && (
+                  <span className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded-full">
+                    Transforms applied live
+                  </span>
+                )}
+              </div>
+
+              {/* Show loading spinner */}
+              {(status === 'converting' || status === 'loading_preview') && (
+                <div className="flex flex-col items-center justify-center h-64 bg-gray-50 rounded-xl">
+                  <svg className="animate-spin h-10 w-10 text-blue-500 mb-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <p className="text-gray-500">
+                    {status === 'loading_preview' ? 'Loading preview...' : 'Converting to GIF...'}
+                  </p>
+                </div>
+              )}
+
+              {/* Show final GIF when available */}
+              {gifUrl && status === 'done' && (
+                <Preview
+                  gifUrl={gifUrl}
+                  previewFrames={result?.preview_frames || []}
+                  metadata={result?.metadata || null}
+                  isLoading={false}
+                />
+              )}
+
+              {/* Show interactive preview when we have frames but no final GIF */}
+              {!gifUrl && previewData && status === 'previewing' && (
+                <InteractivePreview
+                  frames={previewData.all_frames}
+                  totalFrames={previewData.original_total}
+                  currentSlice={currentSlice}
+                  onSliceChange={handleSliceChange}
+                  flipHorizontal={settings.flipHorizontal}
+                  flipVertical={settings.flipVertical}
+                  rotate90={settings.rotate90}
+                  reverseSlices={settings.reverseSlices}
+                  sliceStart={settings.sliceStart}
+                  sliceEnd={settings.sliceEnd}
+                  colormap={settings.colormap}
+                  isPlaying={isPlaying}
+                  fps={settings.fps}
+                  onPlayPauseToggle={handlePlayPauseToggle}
+                  metadata={previewData.metadata}
+                />
+              )}
+
+              {/* Show empty state */}
+              {status === 'idle' && !previewData && !gifUrl && (
+                <div className="flex flex-col items-center justify-center h-64 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+                  <svg className="w-16 h-16 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <p className="text-gray-400 text-center text-sm">
+                    Upload files, then click<br />"Load Preview" for interactive mode
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Error Message */}

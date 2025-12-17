@@ -9,10 +9,21 @@ from typing import List, Literal
 import numpy as np
 import imageio.v3 as iio
 from PIL import Image
-import matplotlib.pyplot as plt
+
+# Lazy-load matplotlib to reduce startup overhead
+_plt = None
 
 
 Colormap = Literal["gray", "viridis", "plasma", "hot", "bone", "jet"]
+
+
+def _get_matplotlib_colormap(name: str):
+    """Lazy-load matplotlib and get colormap."""
+    global _plt
+    if _plt is None:
+        import matplotlib.pyplot as plt
+        _plt = plt
+    return _plt.colormaps[name]
 
 
 def apply_colormap(
@@ -29,15 +40,32 @@ def apply_colormap(
     Returns:
         List of RGB arrays (H, W, 3) as uint8
     """
-    if colormap == "gray":
-        # Convert grayscale to RGB by stacking
-        return [np.stack([s, s, s], axis=-1) for s in slices]
+    # Ensure all slices are 2D
+    processed_slices = []
+    for s in slices:
+        if s.ndim == 2:
+            processed_slices.append(s)
+        elif s.ndim > 2:
+            # Squeeze out any extra dimensions
+            squeezed = np.squeeze(s)
+            if squeezed.ndim == 2:
+                processed_slices.append(squeezed)
+            elif squeezed.ndim > 2:
+                # Take first 2D slice
+                processed_slices.append(squeezed[:, :, 0] if squeezed.ndim == 3 else squeezed.reshape(squeezed.shape[0], -1))
 
-    # Get matplotlib colormap (using colormaps instead of deprecated get_cmap)
-    cmap = plt.colormaps[colormap]
+    if not processed_slices:
+        return []
+
+    if colormap == "gray":
+        # Convert grayscale to RGB by stacking (no matplotlib needed)
+        return [np.stack([s, s, s], axis=-1) for s in processed_slices]
+
+    # Get matplotlib colormap (lazy-loaded)
+    cmap = _get_matplotlib_colormap(colormap)
 
     colored = []
-    for s in slices:
+    for s in processed_slices:
         # Normalize to 0-1 for colormap
         normalized = s.astype(np.float32) / 255.0
         # Apply colormap (returns RGBA)
@@ -87,13 +115,40 @@ def resize_slices(
     return resized
 
 
+def optimize_gif_frames(
+    slices: List[np.ndarray],
+    max_frames: int = 200,
+    target_size_mb: float = 10.0
+) -> List[np.ndarray]:
+    """
+    Optimize GIF by reducing frame count if needed.
+
+    Args:
+        slices: List of frames
+        max_frames: Maximum number of frames
+        target_size_mb: Target file size in MB (rough estimate)
+
+    Returns:
+        Optimized list of frames
+    """
+    if len(slices) <= max_frames:
+        return slices
+
+    # Calculate step to reduce frames
+    step = len(slices) / max_frames
+    indices = [int(i * step) for i in range(max_frames)]
+    return [slices[i] for i in indices]
+
+
 def generate_gif(
     slices: List[np.ndarray],
     output_path: str,
     fps: int = 10,
     colormap: Colormap = "gray",
     loop: int = 0,
-    max_size: int = 512
+    max_size: int = 512,
+    max_frames: int = 0,
+    optimize: bool = True
 ) -> str:
     """
     Generate an animated GIF from a sequence of slices.
@@ -105,6 +160,8 @@ def generate_gif(
         colormap: Colormap to apply
         loop: Number of loops (0 = infinite)
         max_size: Maximum dimension for resizing
+        max_frames: Maximum number of frames (0 = no limit)
+        optimize: Whether to optimize the GIF for file size
 
     Returns:
         Path to the generated GIF
@@ -118,17 +175,35 @@ def generate_gif(
     # Resize if needed
     resized = resize_slices(colored, max_size)
 
+    # Limit frame count if specified
+    if max_frames > 0:
+        resized = optimize_gif_frames(resized, max_frames)
+
     # Calculate duration in milliseconds
     duration = int(1000 / fps)
 
-    # Save GIF
-    iio.imwrite(
-        output_path,
-        resized,
-        extension=".gif",
-        duration=duration,
-        loop=loop
-    )
+    # Save GIF with optimization
+    if optimize:
+        # Use PIL for better GIF optimization
+        frames_pil = [Image.fromarray(f) for f in resized]
+        if frames_pil:
+            frames_pil[0].save(
+                output_path,
+                save_all=True,
+                append_images=frames_pil[1:],
+                duration=duration,
+                loop=loop,
+                optimize=True
+            )
+    else:
+        # Use imageio (faster but larger files)
+        iio.imwrite(
+            output_path,
+            resized,
+            extension=".gif",
+            duration=duration,
+            loop=loop
+        )
 
     return output_path
 
@@ -181,3 +256,61 @@ def get_preview_frames(
         previews.append(f"data:image/png;base64,{b64}")
 
     return previews
+
+
+def get_all_preview_frames(
+    slices: List[np.ndarray],
+    colormap: Colormap = "gray",
+    max_size: int = 256,
+    return_grayscale: bool = False
+) -> List[str]:
+    """
+    Get ALL frames as base64-encoded PNGs for interactive preview.
+    Frames are returned without transforms - transforms applied client-side.
+
+    Args:
+        slices: List of 2D numpy arrays (grayscale normalized)
+        colormap: Colormap to apply (ignored if return_grayscale=True)
+        max_size: Maximum dimension for resizing
+        return_grayscale: If True, return grayscale images for client-side colormap
+
+    Returns:
+        List of base64-encoded PNG strings for all frames
+    """
+    if not slices:
+        return []
+
+    if return_grayscale:
+        # Return grayscale for client-side colormap application
+        # Resize first, keep as grayscale
+        resized = resize_slices([np.stack([s, s, s], axis=-1) for s in slices], max_size)
+        # Convert back to grayscale for smaller transfer
+        all_frames = []
+        for frame in resized:
+            # Take just one channel since all RGB channels are the same
+            gray = frame[:, :, 0]
+            img = Image.fromarray(gray, mode='L')
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG", optimize=True)
+            buffer.seek(0)
+            b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            all_frames.append(f"data:image/png;base64,{b64}")
+        return all_frames
+
+    # Apply colormap
+    colored = apply_colormap(slices, colormap)
+
+    # Resize
+    resized = resize_slices(colored, max_size)
+
+    # Convert to base64 PNGs
+    all_frames = []
+    for frame in resized:
+        img = Image.fromarray(frame)
+        buffer = io.BytesIO()
+        img.save(buffer, format="PNG", optimize=True)
+        buffer.seek(0)
+        b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        all_frames.append(f"data:image/png;base64,{b64}")
+
+    return all_frames
