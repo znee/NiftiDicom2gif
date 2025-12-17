@@ -96,8 +96,10 @@ def sort_dicom_files(
     files_data: List[Tuple[bytes, str]]
 ) -> List[Tuple[bytes, np.ndarray, dict]]:
     """
-    Sort DICOM files by spatial position or instance number.
-    Uses ImagePositionPatient for accurate 3D sorting when available.
+    Sort DICOM files by instance number or spatial position.
+
+    For 2D series (rotating MIP, time series), uses InstanceNumber.
+    For 3D volume stacks, uses ImagePositionPatient when orientations are consistent.
 
     Args:
         files_data: List of (file_content, filename) tuples
@@ -119,21 +121,44 @@ def sort_dicom_files(
     if not loaded:
         return []
 
-    # Determine best sorting method
-    has_position = all(item[2].get('computed_position') is not None for item in loaded)
+    # Check available sorting keys
     has_instance = all(item[2].get('instance_number', 0) > 0 for item in loaded)
+    has_position = all(item[2].get('computed_position') is not None for item in loaded)
+
+    # Check if orientations are consistent (true 3D stack vs rotating/2D series)
+    # For rotating MIP or 2D series, orientations vary - use InstanceNumber
+    is_consistent_orientation = False
+    if has_position and len(loaded) > 1:
+        orientations = [
+            tuple(item[2].get('image_orientation', []))
+            for item in loaded
+            if item[2].get('image_orientation')
+        ]
+        if orientations:
+            # Check if all orientations are the same (within tolerance)
+            first_orient = orientations[0]
+            is_consistent_orientation = all(
+                len(o) == len(first_orient) and
+                all(abs(a - b) < 0.01 for a, b in zip(o, first_orient))
+                for o in orientations
+            )
 
     def sort_key(item):
         _, _, meta = item
-        if has_position:
+        # For true 3D stacks (consistent orientation), use spatial position
+        if has_position and is_consistent_orientation:
             return (meta.get('computed_position', 0),)
+        # For 2D series (rotating MIP, time series), prefer InstanceNumber
         elif has_instance:
             return (meta.get('instance_number', 0),)
+        elif has_position:
+            return (meta.get('computed_position', 0),)
         else:
-            # Fallback to slice_location then instance_number
+            # Fallback to slice_location, instance_number, then filename
             return (
                 meta.get('slice_location') or 0,
-                meta.get('instance_number', 0)
+                meta.get('instance_number', 0),
+                meta.get('filename', '')
             )
 
     loaded.sort(key=sort_key)
@@ -143,22 +168,22 @@ def sort_dicom_files(
 
 def normalize_dicom_array(
     pixel_array: np.ndarray,
-    window_center: Optional[float] = None,
-    window_width: Optional[float] = None,
+    dicom_window_center: Optional[float] = None,
+    dicom_window_width: Optional[float] = None,
     window_mode: WindowMode = "auto",
-    window_min: int = 1,
-    window_max: int = 99
+    user_window_width: int = 98,
+    user_window_level: int = 50
 ) -> np.ndarray:
     """
     Normalize DICOM pixel array to 0-255 range.
 
     Args:
         pixel_array: Raw pixel data
-        window_center: Window center (level) from DICOM metadata
-        window_width: Window width from DICOM metadata
-        window_mode: "auto" for percentile-based, "manual" for absolute range
-        window_min: Lower bound (percentile for auto, % of range for manual)
-        window_max: Upper bound (percentile for auto, % of range for manual)
+        dicom_window_center: Window center (level) from DICOM metadata
+        dicom_window_width: Window width from DICOM metadata
+        window_mode: "auto" for percentile-based, "manual" for absolute HU values
+        user_window_width: User-specified window width (percentile range for auto, HU for manual)
+        user_window_level: User-specified window level (percentile center for auto, HU for manual)
 
     Returns:
         Normalized uint8 array
@@ -166,16 +191,17 @@ def normalize_dicom_array(
     arr = pixel_array.astype(np.float64)
 
     if window_mode == "auto":
-        # Percentile-based windowing (ignore DICOM window settings)
-        vmin = np.percentile(arr, window_min)
-        vmax = np.percentile(arr, window_max)
+        # Percentile-based windowing (works with any modality)
+        # Use width/level as percentiles
+        half_width = user_window_width / 2
+        lower_pct = max(0, user_window_level - half_width)
+        upper_pct = min(100, user_window_level + half_width)
+        vmin = np.percentile(arr, lower_pct)
+        vmax = np.percentile(arr, upper_pct)
     else:
-        # Manual mode: use percentage of data range
-        data_min = np.min(arr)
-        data_max = np.max(arr)
-        data_range = data_max - data_min
-        vmin = data_min + (data_range * window_min / 100)
-        vmax = data_min + (data_range * window_max / 100)
+        # Manual mode: Use absolute window width/level (HU for CT)
+        vmin = user_window_level - user_window_width / 2
+        vmax = user_window_level + user_window_width / 2
 
     # Clip and normalize
     arr = np.clip(arr, vmin, vmax)
@@ -190,17 +216,17 @@ def normalize_dicom_array(
 def process_dicom_series(
     files_data: List[Tuple[bytes, str]],
     window_mode: WindowMode = "auto",
-    window_min: int = 1,
-    window_max: int = 99
+    window_width: int = 98,
+    window_level: int = 50
 ) -> Tuple[List[np.ndarray], dict]:
     """
     Process a series of DICOM files into normalized slices.
 
     Args:
         files_data: List of (file_content, filename) tuples
-        window_mode: "auto" for percentile-based, "manual" for absolute range
-        window_min: Lower bound (percentile for auto, % of range for manual)
-        window_max: Upper bound (percentile for auto, % of range for manual)
+        window_mode: "auto" for percentile-based, "manual" for absolute HU values
+        window_width: Window width (percentile range for auto, HU for manual)
+        window_level: Window level (percentile center for auto, HU for manual)
 
     Returns:
         Tuple of (list of normalized 2D slices, metadata dict)
@@ -224,11 +250,11 @@ def process_dicom_series(
         # Normalize each slice with user-defined window settings
         normalized = normalize_dicom_array(
             pixel_array,
-            window_center=meta.get('window_center'),
-            window_width=meta.get('window_width'),
+            dicom_window_center=meta.get('window_center'),
+            dicom_window_width=meta.get('window_width'),
             window_mode=window_mode,
-            window_min=window_min,
-            window_max=window_max
+            user_window_width=window_width,
+            user_window_level=window_level
         )
         slices.append(normalized)
 
@@ -238,7 +264,7 @@ def process_dicom_series(
         "shape": [first_meta.get('rows', 0), first_meta.get('columns', 0), len(slices)],
         "file_type": "dicom",
         "window_mode": window_mode,
-        "window_range": f"{window_min}-{window_max}",
+        "window_wl": f"W:{window_width} L:{window_level}",
     }
 
     return slices, metadata
@@ -247,17 +273,17 @@ def process_dicom_series(
 def process_single_dicom(
     file_content: bytes,
     window_mode: WindowMode = "auto",
-    window_min: int = 1,
-    window_max: int = 99
+    window_width: int = 98,
+    window_level: int = 50
 ) -> Tuple[List[np.ndarray], dict]:
     """
     Process a single DICOM file (for 2D images or cine loops).
 
     Args:
         file_content: Raw bytes of the DICOM file
-        window_mode: "auto" for percentile-based, "manual" for absolute range
-        window_min: Lower bound (percentile for auto, % of range for manual)
-        window_max: Upper bound (percentile for auto, % of range for manual)
+        window_mode: "auto" for percentile-based, "manual" for absolute HU values
+        window_width: Window width (percentile range for auto, HU for manual)
+        window_level: Window level (percentile center for auto, HU for manual)
 
     Returns:
         Tuple of (list of normalized 2D slices, metadata dict)
@@ -276,11 +302,11 @@ def process_single_dicom(
             frame = apply_modality_lut(frame, ds)
             normalized = normalize_dicom_array(
                 frame,
-                window_center=getattr(ds, 'WindowCenter', None),
-                window_width=getattr(ds, 'WindowWidth', None),
+                dicom_window_center=getattr(ds, 'WindowCenter', None),
+                dicom_window_width=getattr(ds, 'WindowWidth', None),
                 window_mode=window_mode,
-                window_min=window_min,
-                window_max=window_max
+                user_window_width=window_width,
+                user_window_level=window_level
             )
             frames.append(normalized)
 
@@ -290,7 +316,7 @@ def process_single_dicom(
             "shape": list(pixel_array.shape),
             "file_type": "dicom_multiframe",
             "window_mode": window_mode,
-            "window_range": f"{window_min}-{window_max}",
+            "window_wl": f"W:{window_width} L:{window_level}",
         }
         return frames, metadata
     else:
@@ -298,11 +324,11 @@ def process_single_dicom(
         pixel_array = apply_modality_lut(pixel_array, ds)
         normalized = normalize_dicom_array(
             pixel_array,
-            window_center=getattr(ds, 'WindowCenter', None),
-            window_width=getattr(ds, 'WindowWidth', None),
+            dicom_window_center=getattr(ds, 'WindowCenter', None),
+            dicom_window_width=getattr(ds, 'WindowWidth', None),
             window_mode=window_mode,
-            window_min=window_min,
-            window_max=window_max
+            user_window_width=window_width,
+            user_window_level=window_level
         )
 
         metadata = {
@@ -311,6 +337,6 @@ def process_single_dicom(
             "shape": list(pixel_array.shape),
             "file_type": "dicom_single",
             "window_mode": window_mode,
-            "window_range": f"{window_min}-{window_max}",
+            "window_wl": f"W:{window_width} L:{window_level}",
         }
         return [normalized], metadata
