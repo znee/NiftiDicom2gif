@@ -3,6 +3,7 @@ API routes for file conversion.
 """
 import logging
 import os
+import shutil
 import uuid
 from pathlib import Path
 from typing import List, Literal
@@ -472,12 +473,13 @@ async def download_gif(task_id: str):
 async def clear_all():
     """
     Clear all uploaded files and generated GIFs (privacy feature).
+    Removes all files and subdirectories in the temp directory.
     """
     global GENERATED_GIFS
 
     cleared_count = 0
 
-    # Delete all GIF files
+    # Delete all tracked GIF files
     for task_id, path in list(GENERATED_GIFS.items()):
         try:
             if os.path.exists(path):
@@ -488,15 +490,20 @@ async def clear_all():
 
     GENERATED_GIFS.clear()
 
-    # Clean temp directory
+    # Thoroughly clean temp directory (files and subdirectories)
     if TEMP_DIR.exists():
-        for f in TEMP_DIR.iterdir():
+        for item in TEMP_DIR.iterdir():
             try:
-                if f.is_file():
-                    f.unlink()
+                if item.is_file():
+                    item.unlink()
+                    cleared_count += 1
+                elif item.is_dir():
+                    shutil.rmtree(item)
+                    cleared_count += 1
             except Exception as e:
-                logger.warning(f"Failed to delete temp file {f}: {e}")
+                logger.warning(f"Failed to delete {item}: {e}")
 
+    logger.info(f"Clear all: removed {cleared_count} items from temp directory")
     return {"success": True, "message": f"Cleared {cleared_count} files"}
 
 
