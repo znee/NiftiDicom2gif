@@ -64,11 +64,15 @@ async def health():
     return {"status": "ok", "message": "NIfTI/DICOM to GIF Converter API"}
 
 
-# Serve static frontend in production (when static directory exists)
-if STATIC_DIR.exists():
+# Check if we have a built frontend to serve
+_has_static = STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists()
+_has_assets = _has_static and (STATIC_DIR / "assets").exists()
+
+if _has_assets:
     # Serve static assets (JS, CSS, images)
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
+if _has_static:
     @app.get("/")
     async def serve_root():
         """Serve the frontend index.html."""
