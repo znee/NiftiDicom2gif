@@ -3,6 +3,7 @@ API routes for file conversion.
 """
 import logging
 import os
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -17,6 +18,19 @@ from services.dicom_processor import process_dicom_series, process_single_dicom
 from utils.gif_generator import generate_gif, get_preview_frames, get_all_preview_frames, Colormap
 
 logger = logging.getLogger(__name__)
+
+# Check if production mode
+IS_PRODUCTION = os.getenv("PRODUCTION", "").lower() in ("true", "1", "yes")
+
+
+def sanitize_error_message(error: str) -> str:
+    """Remove file paths and sensitive info from error messages."""
+    # Remove file paths (Unix and Windows)
+    error = re.sub(r'[/\\][\w\-./\\]+\.(nii|nii\.gz|dcm|dicom|gif|png)', '[file]', error, flags=re.IGNORECASE)
+    error = re.sub(r'[/\\][\w\-./\\]+temp[/\\][\w\-]+', '[temp]', error)
+    # Remove UUIDs that might be in paths
+    error = re.sub(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '[id]', error, flags=re.IGNORECASE)
+    return error
 
 router = APIRouter()
 
@@ -284,17 +298,17 @@ async def convert_to_gif(
         )
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=sanitize_error_message(str(e)))
     except HTTPException:
         raise
     except MemoryError:
-        logger.exception(f"Memory error for task {task_id}")
+        logger.error(f"Memory error for task {task_id[:8]}")
         raise HTTPException(
             status_code=413,
             detail="File too large to process in memory. Try a smaller file or fewer slices."
         )
     except OSError as e:
-        logger.exception(f"OS error for task {task_id}: {e}")
+        logger.error(f"OS error for task {task_id[:8]}: {type(e).__name__}")
         error_msg = str(e).lower()
         if "timed out" in error_msg or "timeout" in error_msg:
             raise HTTPException(
@@ -306,10 +320,14 @@ async def convert_to_gif(
                 status_code=403,
                 detail="Permission denied reading file. Check file permissions."
             )
-        raise HTTPException(status_code=500, detail=f"File system error: {str(e)}")
+        # Hide full path in production
+        detail = "File system error occurred" if IS_PRODUCTION else f"File system error: {sanitize_error_message(str(e))}"
+        raise HTTPException(status_code=500, detail=detail)
     except Exception as e:
-        logger.exception(f"Processing error for task {task_id}")
-        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
+        logger.error(f"Processing error for task {task_id[:8]}: {type(e).__name__}")
+        # Hide detailed error in production
+        detail = "Processing error occurred. Please check your file and try again." if IS_PRODUCTION else f"Processing error: {sanitize_error_message(str(e))}"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.post("/preview", response_model=PreviewResponse)
@@ -439,12 +457,13 @@ async def get_interactive_preview(
         )
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=sanitize_error_message(str(e)))
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Preview error for task {task_id}")
-        raise HTTPException(status_code=500, detail=f"Preview error: {str(e)}")
+        logger.error(f"Preview error for task {task_id[:8]}: {type(e).__name__}")
+        detail = "Preview error occurred. Please check your file and try again." if IS_PRODUCTION else f"Preview error: {sanitize_error_message(str(e))}"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.get("/download/{task_id}")

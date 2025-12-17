@@ -6,17 +6,25 @@ import shutil
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from routers import convert
+import logging
+
+# Configure logging - avoid logging sensitive paths in production
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Environment configuration
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8802"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Comma-separated list or "*" for all
+IS_PRODUCTION = os.getenv("PRODUCTION", "").lower() in ("true", "1", "yes")
 
 # Temp directory for storing generated GIFs
 TEMP_DIR = Path(__file__).parent / "temp"
@@ -35,27 +43,57 @@ async def lifespan(app: FastAPI):
         shutil.rmtree(TEMP_DIR)
 
 
+# Disable docs in production for security
 app = FastAPI(
     title="NIfTI/DICOM to GIF Converter",
     description="Convert medical images to animated GIFs",
     version="1.0.0",
     lifespan=lifespan,
+    # Disable Swagger UI and ReDoc in production
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
 )
 
 # CORS configuration
 # Set CORS_ORIGINS env var to restrict origins in production (comma-separated)
 # e.g., CORS_ORIGINS="https://example.com,https://app.example.com"
 cors_origins = ["*"] if CORS_ORIGINS == "*" else [o.strip() for o in CORS_ORIGINS.split(",")]
+# Note: allow_credentials=True is incompatible with allow_origins=["*"]
+# Only enable credentials for specific origins
+allow_credentials = CORS_ORIGINS != "*"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Include routers
 app.include_router(convert.router, prefix="/api", tags=["convert"])
+
+
+# Global exception handler to hide internal details in production
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected exceptions - hide internal details in production."""
+    logger = logging.getLogger(__name__)
+
+    if IS_PRODUCTION:
+        # In production, log the full error but return generic message
+        logger.error(f"Unexpected error: {type(exc).__name__}: {exc}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An internal error occurred. Please try again."}
+        )
+    else:
+        # In development, show full error details
+        logger.exception(f"Unexpected error: {exc}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(exc)}
+        )
 
 
 @app.get("/health")

@@ -12,4 +12,6 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: CORS_ORIGINS
-        value: "*"
+        value: "https://nifti-gif-converter.onrender.com"
+      - key: PRODUCTION
+        value: "true"
