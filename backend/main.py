@@ -1,6 +1,7 @@
 """
 NIfTI/DICOM to GIF Converter - FastAPI Backend
 """
+import os
 import shutil
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -9,6 +10,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers import convert
+
+# Environment configuration
+HOST = os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("PORT", "8802"))
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Comma-separated list or "*" for all
 
 # Temp directory for storing generated GIFs
 TEMP_DIR = Path(__file__).parent / "temp"
@@ -31,10 +37,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration for React frontend (allow any origin for local network access)
+# CORS configuration
+# Set CORS_ORIGINS env var to restrict origins in production (comma-separated)
+# e.g., CORS_ORIGINS="https://example.com,https://app.example.com"
+cors_origins = ["*"] if CORS_ORIGINS == "*" else [o.strip() for o in CORS_ORIGINS.split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,4 +61,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8802, reload=True)
+    uvicorn.run("main:app", host=HOST, port=PORT, reload=True)
