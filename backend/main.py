@@ -73,17 +73,30 @@ if _has_assets:
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
 if _has_static:
+    # Mount the entire static directory to serve other static files (favicon, etc.)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
     @app.get("/")
     async def serve_root():
         """Serve the frontend index.html."""
         return FileResponse(STATIC_DIR / "index.html")
 
+    # Catch-all for SPA client-side routing (but NOT for /api or /health)
     @app.get("/{path:path}")
     async def serve_spa(path: str):
-        """Serve SPA - return index.html for all non-API routes."""
+        """Serve SPA - return index.html for client-side routes only."""
+        # Don't intercept API routes or health check
+        if path.startswith("api") or path == "health":
+            # Return 404 - let FastAPI handle these
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        # Try to serve static file if it exists
         file_path = STATIC_DIR / path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
+
+        # Otherwise return index.html for client-side routing
         return FileResponse(STATIC_DIR / "index.html")
 else:
     @app.get("/")
