@@ -1,6 +1,7 @@
 """
 API routes for file conversion.
 """
+import gc
 import logging
 import os
 import re
@@ -44,6 +45,12 @@ TEMP_DIR = Path(__file__).parent.parent / "temp"
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB per file
 MAX_FILES = 1000  # Max number of files in a series
 MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB total
+
+# Cloud-specific limits (Render free tier has 30s timeout and 512MB memory)
+# Reduce limits in production to avoid timeout/memory issues
+CLOUD_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB for cloud (memory constraint)
+CLOUD_MAX_PREVIEW_FRAMES = 60  # Limit preview frames to avoid memory issues
+CLOUD_MAX_GIF_SIZE = 384  # Smaller max GIF size for cloud
 
 
 class ConversionResponse(BaseModel):
@@ -123,13 +130,17 @@ async def convert_to_gif(
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
 
+    # Use stricter limits in production (cloud deployment has timeouts and memory limits)
+    effective_max_file_size = CLOUD_MAX_FILE_SIZE if IS_PRODUCTION else MAX_FILE_SIZE
+    effective_max_gif_size = CLOUD_MAX_GIF_SIZE if IS_PRODUCTION else 2048
+
     # Validate and clamp input parameters
     slice_start = max(0, min(100, slice_start))
     slice_end = max(0, min(100, slice_end))
     if slice_end <= slice_start:
         slice_end = min(100, slice_start + 1)
     rotate90 = rotate90 % 4  # Normalize to 0-3
-    max_gif_size = max(64, min(2048, max_gif_size))
+    max_gif_size = max(64, min(effective_max_gif_size, max_gif_size))
     max_frames = max(0, min(1000, max_frames))
 
     # Validate file count
@@ -156,10 +167,16 @@ async def convert_to_gif(
         if file_type == "nifti":
             # Read and validate file size
             content = await files[0].read()
-            if len(content) > MAX_FILE_SIZE:
+            if len(content) > effective_max_file_size:
+                size_mb = effective_max_file_size // (1024*1024)
+                if IS_PRODUCTION:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File too large for cloud processing (max {size_mb}MB). For larger files, run locally."
+                    )
                 raise HTTPException(
                     status_code=400,
-                    detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)} MB."
+                    detail=f"File too large. Maximum size is {size_mb} MB."
                 )
 
             # Save to temp file with correct extension (nibabel needs file path)
@@ -286,6 +303,11 @@ async def convert_to_gif(
             optimize=True
         )
 
+        # Free memory from slices (important for cloud with limited RAM)
+        del slices
+        if IS_PRODUCTION:
+            gc.collect()
+
         # Store reference
         GENERATED_GIFS[task_id] = str(gif_path)
 
@@ -357,8 +379,13 @@ async def get_interactive_preview(
             detail=f"Too many files. Maximum {MAX_FILES} files allowed."
         )
 
-    # Validate and clamp preview_size
-    preview_size = max(64, min(512, preview_size))
+    # Use stricter limits in production (cloud deployment has timeouts)
+    effective_max_file_size = CLOUD_MAX_FILE_SIZE if IS_PRODUCTION else MAX_FILE_SIZE
+    max_preview_frames = CLOUD_MAX_PREVIEW_FRAMES if IS_PRODUCTION else 500
+
+    # Validate and clamp preview_size (smaller for cloud to speed up)
+    max_preview_size = 256 if IS_PRODUCTION else 512
+    preview_size = max(64, min(max_preview_size, preview_size))
 
     TEMP_DIR.mkdir(exist_ok=True)
     task_id = str(uuid.uuid4())
@@ -369,10 +396,16 @@ async def get_interactive_preview(
 
         if file_type == "nifti":
             content = await files[0].read()
-            if len(content) > MAX_FILE_SIZE:
+            if len(content) > effective_max_file_size:
+                size_mb = effective_max_file_size // (1024*1024)
+                if IS_PRODUCTION:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File too large for cloud processing (max {size_mb}MB). For larger files, run locally."
+                    )
                 raise HTTPException(
                     status_code=400,
-                    detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)} MB."
+                    detail=f"File too large. Maximum size is {size_mb} MB."
                 )
 
             suffix = ".nii.gz" if first_filename.lower().endswith(".nii.gz") else ".nii"
@@ -439,10 +472,23 @@ async def get_interactive_preview(
                 detail="No image data found."
             )
 
-        total_frames = len(slices)
+        original_total = len(slices)
+
+        # Subsample frames if too many (for cloud processing speed)
+        if len(slices) > max_preview_frames:
+            step = len(slices) / max_preview_frames
+            indices = [int(i * step) for i in range(max_preview_frames)]
+            slices = [slices[i] for i in indices]
+            metadata["subsampled"] = True
+            metadata["original_frames"] = original_total
 
         # Get all frames as grayscale base64 (colormap and slice range applied client-side)
         all_frames = get_all_preview_frames(slices, max_size=preview_size, return_grayscale=True)
+
+        # Free memory from slices (important for cloud with limited RAM)
+        del slices
+        if IS_PRODUCTION:
+            gc.collect()
 
         metadata["num_frames"] = len(all_frames)
         metadata["preview_size"] = preview_size
@@ -452,7 +498,7 @@ async def get_interactive_preview(
             task_id=task_id,
             all_frames=all_frames,
             total_frames=len(all_frames),
-            original_total=total_frames,
+            original_total=original_total,
             metadata=metadata
         )
 
@@ -460,6 +506,13 @@ async def get_interactive_preview(
         raise HTTPException(status_code=400, detail=sanitize_error_message(str(e)))
     except HTTPException:
         raise
+    except MemoryError:
+        logger.error(f"Memory error for preview task {task_id[:8]}")
+        gc.collect()  # Try to free memory
+        raise HTTPException(
+            status_code=413,
+            detail="File too large for cloud processing. For large files, run locally."
+        )
     except Exception as e:
         logger.error(f"Preview error for task {task_id[:8]}: {type(e).__name__}")
         detail = "Preview error occurred. Please check your file and try again." if IS_PRODUCTION else f"Preview error: {sanitize_error_message(str(e))}"

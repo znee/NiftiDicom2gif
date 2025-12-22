@@ -175,8 +175,8 @@ function App() {
                 <p className="font-bold text-red-900 mb-1">Privacy Warning - Cloud-Hosted Demo</p>
                 <ul className="space-y-0.5 text-red-700">
                   <li>• <strong>Do NOT upload real patient data</strong> - Use only anonymized or sample files</li>
+                  <li>• <strong>Max file size: 50MB</strong> - For larger files, <a href="https://github.com/znee/NiftiDicom2gif" className="underline font-medium" target="_blank" rel="noopener noreferrer">run locally</a></li>
                   <li>• Files are uploaded to a remote server and temporarily stored during processing</li>
-                  <li>• For real medical data, <a href="https://github.com/znee/NiftiDicom2gif" className="underline font-medium" target="_blank" rel="noopener noreferrer">run locally</a> on your own machine</li>
                 </ul>
               </div>
             </div>

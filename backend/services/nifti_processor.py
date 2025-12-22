@@ -44,7 +44,9 @@ def load_nifti_from_path(file_path: str) -> Tuple[np.ndarray, dict, np.ndarray, 
         voxel_spacing is (x_spacing, y_spacing, z_spacing) in mm
     """
     img = nib.load(file_path)
-    data = img.get_fdata()
+    # Use float32 instead of float64 for faster processing and lower memory usage
+    # This is sufficient precision for medical imaging visualization
+    data = img.get_fdata(dtype=np.float32)
     voxel_spacing = get_voxel_spacing(img.affine)
 
     metadata = {

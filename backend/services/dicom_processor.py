@@ -552,7 +552,8 @@ def normalize_to_full_range(
     Returns:
         Tuple of (normalized uint8 array, data_min, data_max)
     """
-    arr = pixel_array.astype(np.float64)
+    # Use float32 for faster processing and lower memory usage
+    arr = pixel_array.astype(np.float32)
     vmin = float(np.percentile(arr, percentile_low))
     vmax = float(np.percentile(arr, percentile_high))
 
@@ -588,7 +589,8 @@ def normalize_dicom_array(
     Returns:
         Normalized uint8 array
     """
-    arr = pixel_array.astype(np.float64)
+    # Use float32 for faster processing and lower memory usage
+    arr = pixel_array.astype(np.float32)
 
     if window_mode == "auto":
         # Percentile-based windowing (works with any modality)
@@ -631,7 +633,8 @@ def normalize_volume(
     Returns:
         Normalized uint8 3D array
     """
-    arr = volume.astype(np.float64)
+    # Use float32 for faster processing and lower memory usage
+    arr = volume.astype(np.float32)
 
     if window_mode == "auto":
         half_width = window_width / 2
