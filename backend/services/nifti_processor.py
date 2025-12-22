@@ -306,7 +306,8 @@ def process_nifti_from_path(
     slice_index: int = None,
     window_mode: WindowMode = "auto",
     window_width: int = 98,
-    window_level: int = 50
+    window_level: int = 50,
+    max_voxels: int = 0
 ) -> Tuple[List[np.ndarray], dict]:
     """
     Full pipeline from file path: load NIfTI, extract and normalize slices.
@@ -319,11 +320,27 @@ def process_nifti_from_path(
         window_mode: "auto" for percentile-based, "manual" for absolute HU values
         window_width: Window width (percentile range for auto, HU range for manual)
         window_level: Window level (percentile center for auto, HU center for manual)
+        max_voxels: Maximum number of voxels allowed (0 = no limit)
 
     Returns:
         Tuple of (list of normalized 2D slices, metadata dict)
+
+    Raises:
+        ValueError: If volume exceeds max_voxels limit
     """
     data, metadata, affine, voxel_spacing = load_nifti_from_path(file_path)
+
+    # Check voxel count limit (for cloud memory constraints)
+    if max_voxels > 0:
+        total_voxels = data.size
+        if total_voxels > max_voxels:
+            shape_str = "x".join(str(s) for s in data.shape)
+            max_m = max_voxels / 1_000_000
+            total_m = total_voxels / 1_000_000
+            raise ValueError(
+                f"Volume too large for cloud processing: {shape_str} = {total_m:.1f}M voxels "
+                f"(max {max_m:.0f}M). For large files, run locally."
+            )
 
     # Reorient to RAS for consistent slicing
     try:

@@ -46,11 +46,16 @@ MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB per file
 MAX_FILES = 1000  # Max number of files in a series
 MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB total
 
-# Cloud-specific limits (Render free tier has 30s timeout and 512MB memory)
-# Reduce limits in production to avoid timeout/memory issues
-CLOUD_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB for cloud (memory constraint)
-CLOUD_MAX_PREVIEW_FRAMES = 60  # Limit preview frames to avoid memory issues
-CLOUD_MAX_GIF_SIZE = 384  # Smaller max GIF size for cloud
+# Cloud-specific limits (Render free tier: 512MB RAM, 0.1 CPU, ~30s timeout)
+# With ~150MB for Python/FastAPI overhead, we have ~350MB for processing
+# A NIfTI volume uses: voxels × 4 bytes (float32) + processing overhead (~2x)
+# Safe limit: 350MB / 8 bytes = ~44M voxels, but use 20M for safety margin
+CLOUD_MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB compressed (can expand 10x+)
+CLOUD_MAX_PREVIEW_FRAMES = 50  # Limit preview frames to reduce memory
+CLOUD_MAX_GIF_SIZE = 320  # Smaller max GIF size for cloud
+# Max voxels: ~256×256×200 = 13M voxels uses ~100MB RAM (float32 + overhead)
+# Conservative limit for 512MB free tier
+CLOUD_MAX_VOXELS = 15 * 1024 * 1024  # 15 million voxels max for cloud
 
 
 class ConversionResponse(BaseModel):
@@ -188,13 +193,15 @@ async def convert_to_gif(
 
             try:
                 # Process NIfTI with mode parameter
+                max_voxels = CLOUD_MAX_VOXELS if IS_PRODUCTION else 0
                 slices, metadata = process_nifti_from_path(
                     str(temp_path),
                     mode=mode,
                     orientation=orientation,
                     window_mode=window_mode,
                     window_width=window_width,
-                    window_level=window_level
+                    window_level=window_level,
+                    max_voxels=max_voxels
                 )
             finally:
                 # Clean up temp input
@@ -414,13 +421,15 @@ async def get_interactive_preview(
                 f.write(content)
 
             try:
+                max_voxels = CLOUD_MAX_VOXELS if IS_PRODUCTION else 0
                 slices, metadata = process_nifti_from_path(
                     str(temp_path),
                     mode=mode,
                     orientation=orientation,
                     window_mode=window_mode,
                     window_width=window_width,
-                    window_level=window_level
+                    window_level=window_level,
+                    max_voxels=max_voxels
                 )
             finally:
                 temp_path.unlink(missing_ok=True)

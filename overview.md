@@ -22,3 +22,44 @@ use this conda env for default
 /opt/homebrew/Caskroom/miniforge/base/envs/wmh
 
 
+## Standalone App Plan
+
+Build a cross-platform standalone desktop application from this web app.
+
+### Recommended Approach: Tauri + React
+
+**Why Tauri:**
+- Reuses existing React frontend code
+- Lightweight (~10-30MB vs Electron's 150MB+)
+- Cross-platform (Mac/Windows/Linux)
+- Uses system webview (no bundled Chromium)
+- Rust backend for performance
+
+**Architecture:**
+```
+nifti_gif_standalone/
+├── src-tauri/           # Rust/Tauri backend
+│   ├── src/
+│   │   └── main.rs      # Tauri app entry
+│   └── tauri.conf.json  # Tauri config
+├── src/                 # React frontend (copy from webapp)
+├── python-sidecar/      # Bundled Python backend
+│   ├── main.py          # FastAPI app (simplified)
+│   └── requirements.txt
+└── package.json
+```
+
+**Implementation Steps:**
+1. Create new project with `npm create tauri-app`
+2. Copy React frontend from `nifti_gif_app/frontend/src`
+3. Bundle Python backend with PyInstaller as sidecar process
+4. Tauri spawns Python sidecar on app start
+5. Frontend communicates with local Python API
+6. Package with `tauri build` for each platform
+
+**Alternative Approaches:**
+- **Electron**: Heavier but more mature ecosystem
+- **PyWebView**: Python-native, simpler but less polished
+- **Native Swift/SwiftUI**: Mac-only, best performance
+
+

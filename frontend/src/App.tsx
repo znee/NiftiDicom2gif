@@ -172,11 +172,11 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <div className="text-sm">
-                <p className="font-bold text-red-900 mb-1">Privacy Warning - Cloud-Hosted Demo</p>
+                <p className="font-bold text-red-900 mb-1">Cloud Demo - Limited Resources (512MB RAM)</p>
                 <ul className="space-y-0.5 text-red-700">
                   <li>• <strong>Do NOT upload real patient data</strong> - Use only anonymized or sample files</li>
-                  <li>• <strong>Max file size: 50MB</strong> - For larger files, <a href="https://github.com/znee/NiftiDicom2gif" className="underline font-medium" target="_blank" rel="noopener noreferrer">run locally</a></li>
-                  <li>• Files are uploaded to a remote server and temporarily stored during processing</li>
+                  <li>• <strong>Small volumes only</strong> (~256×256×200 max) - Large/high-res files will fail</li>
+                  <li>• For large data, <a href="https://github.com/znee/NiftiDicom2gif" className="underline font-medium" target="_blank" rel="noopener noreferrer">run locally</a> on your own machine</li>
                 </ul>
               </div>
             </div>
